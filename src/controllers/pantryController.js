@@ -6,6 +6,38 @@ const localToday = () => {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
 
+// Helper: automatically add item to grocery list if conditions are met
+const handleAutoAddToGrocery = async (user_id, item) => {
+  if (!item.auto_add_to_grocery) return;
+
+  const isConsumed = item.status === 'consumed';
+  const currentQty = parseFloat(item.current_quantity ?? item.quantity) || 0;
+  const minQty = parseFloat(item.min_quantity);
+  
+  const isBelowMin = !isNaN(minQty) && currentQty <= minQty;
+  const isZero = currentQty === 0;
+
+  if (isConsumed || isBelowMin || isZero) {
+    const existing = await db.query(
+      `SELECT id FROM grocery_items WHERE user_id = $1 AND item_name = $2 AND is_purchased = false`,
+      [user_id, item.name]
+    );
+    if (existing.rows.length === 0) {
+      const suggestedQty = (!isNaN(minQty) && minQty > 0) ? minQty : 1;
+      await db.query(
+        `INSERT INTO grocery_items
+          (user_id, item_name, category, suggested_quantity, unit, triggered_by, min_quantity, pantry_item_id, is_purchased)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)`,
+        [
+          user_id, item.name, item.category || 'Other', suggestedQty, item.unit || 'Pieces',
+          isBelowMin && !isConsumed && !isZero ? 'low_stock' : 'consumed', 
+          item.min_quantity || null, item.id
+        ]
+      );
+    }
+  }
+};
+
 // GET /api/pantry — Get all pantry items for the logged-in user
 const getAllItems = async (req, res) => {
   try {
@@ -73,6 +105,8 @@ const addItem = async (req, res) => {
       ]
     );
 
+    await handleAutoAddToGrocery(req.user.id, result.rows[0]);
+
     res.status(201).json({ success: true, item: mapItemToFrontend(result.rows[0]) });
   } catch (error) {
     console.error('Add pantry item error:', error);
@@ -118,6 +152,8 @@ const updateItem = async (req, res) => {
       ]
     );
 
+    await handleAutoAddToGrocery(req.user.id, result.rows[0]);
+
     res.json({ success: true, item: mapItemToFrontend(result.rows[0]) });
   } catch (error) {
     console.error('Update pantry item error:', error);
@@ -161,6 +197,8 @@ const updateStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
 
+    await handleAutoAddToGrocery(req.user.id, result.rows[0]);
+
     res.json({ success: true, item: mapItemToFrontend(result.rows[0]) });
   } catch (error) {
     console.error('Update status error:', error);
@@ -178,9 +216,14 @@ const bulkConsume = async (req, res) => {
 
     const result = await db.query(
       `UPDATE pantry_items SET status = 'consumed'
-       WHERE id = ANY($1::int[]) AND user_id = $2`,
+       WHERE id = ANY($1::int[]) AND user_id = $2
+       RETURNING *`,
       [ids, req.user.id]
     );
+
+    for (const item of result.rows) {
+      await handleAutoAddToGrocery(req.user.id, item);
+    }
 
     res.json({ success: true, count: result.rowCount });
   } catch (error) {
@@ -416,6 +459,8 @@ const logConsumption = async (req, res) => {
       `UPDATE pantry_items SET current_quantity = $1, quantity = $1 WHERE id = $2 AND user_id = $3 RETURNING *`,
       [newQty, req.params.id, req.user.id]
     );
+
+    await handleAutoAddToGrocery(req.user.id, updatedItem.rows[0]);
 
     res.status(201).json({
       success: true,
