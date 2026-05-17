@@ -537,8 +537,8 @@ function mapItemToFrontend(row) {
     imageUrl: row.image_url || '',
     entryDate: row.entry_date || null,
     autoAddToGrocery: row.auto_add_to_grocery || false,
-    currentQuantity: row.current_quantity ? parseFloat(row.current_quantity) : undefined,
-    minQuantity: row.min_quantity ? parseFloat(row.min_quantity) : undefined,
+    currentQuantity: row.current_quantity !== null && row.current_quantity !== undefined ? parseFloat(row.current_quantity) : undefined,
+    minQuantity: row.min_quantity !== null && row.min_quantity !== undefined ? parseFloat(row.min_quantity) : undefined,
   };
 }
 

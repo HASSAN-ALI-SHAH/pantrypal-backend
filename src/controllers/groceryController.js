@@ -237,7 +237,8 @@ const purchaseGrocery = async (req, res) => {
         `UPDATE pantry_items
          SET current_quantity = COALESCE(current_quantity, quantity, 0) + $1,
              quantity = COALESCE(quantity, 0) + $1,
-             expiry_date = COALESCE($2, expiry_date)
+             expiry_date = COALESCE($2, expiry_date),
+             status = 'active'
          WHERE id = $3 AND user_id = $4
          RETURNING *`,
         [qty, expiryDate || null, pantryItem.id, req.user.id]
@@ -269,7 +270,7 @@ function mapPantryItemToFrontend(row) {
     id: row.id,
     name: row.name,
     quantity: parseFloat(row.quantity) || 0,
-    currentQuantity: row.current_quantity ? parseFloat(row.current_quantity) : undefined,
+    currentQuantity: row.current_quantity !== null && row.current_quantity !== undefined ? parseFloat(row.current_quantity) : undefined,
     expiryDate: row.expiry_date || null,
     unit: row.unit,
     category: row.category,
@@ -278,7 +279,7 @@ function mapPantryItemToFrontend(row) {
     imageUrl: row.image_url || '',
     entryDate: row.entry_date || null,
     autoAddToGrocery: row.auto_add_to_grocery || false,
-    minQuantity: row.min_quantity ? parseFloat(row.min_quantity) : undefined,
+    minQuantity: row.min_quantity !== null && row.min_quantity !== undefined ? parseFloat(row.min_quantity) : undefined,
     addedDate: row.added_date,
   };
 }
