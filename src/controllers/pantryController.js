@@ -92,6 +92,11 @@ const addItem = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Item name is required' });
     }
 
+    const qty = parseFloat(quantity);
+    if (quantity !== undefined && quantity !== null && (isNaN(qty) || qty <= 0)) {
+      return res.status(400).json({ success: false, message: 'Cannot add 0 quantity — must be at least 1' });
+    }
+
     const result = await db.query(
       `INSERT INTO pantry_items
         (user_id, name, category, quantity, unit, expiry_date, notes,
@@ -99,9 +104,13 @@ const addItem = async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active')
        RETURNING *`,
       [
-        req.user.id, name, category || 'Other', quantity || 1, unit || 'Pieces',
+        req.user.id, name, category || 'Other',
+        (quantity !== undefined && quantity !== null) ? quantity : 1,
+        unit || 'Pieces',
         expiryDate || null, notes || '', entryDate || localToday(),
-        imageUrl || '', autoAddToGrocery || false, currentQuantity || null, minQuantity || null
+        imageUrl || '', autoAddToGrocery || false,
+        (currentQuantity !== undefined && currentQuantity !== null) ? currentQuantity : null,
+        (minQuantity !== undefined && minQuantity !== null) ? minQuantity : null
       ]
     );
 
