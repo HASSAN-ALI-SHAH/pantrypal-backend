@@ -433,7 +433,7 @@ const logConsumption = async (req, res) => {
 
     // Verify ownership and get current item
     const check = await db.query(
-      'SELECT id, current_quantity, quantity, unit FROM pantry_items WHERE id = $1 AND user_id = $2',
+      'SELECT id, current_quantity, quantity, unit, status FROM pantry_items WHERE id = $1 AND user_id = $2',
       [req.params.id, req.user.id]
     );
     if (check.rows.length === 0) {
@@ -450,6 +450,7 @@ const logConsumption = async (req, res) => {
     }
 
     const newQty = Math.max(0, currentQty - qty);
+    const newStatus = (newQty === 0 && item.status === 'active') ? 'consumed' : item.status;
 
     // Insert consumption log
     const logResult = await db.query(
@@ -463,10 +464,10 @@ const logConsumption = async (req, res) => {
       ]
     );
 
-    // Update pantry item quantity
+    // Update pantry item quantity and status
     const updatedItem = await db.query(
-      `UPDATE pantry_items SET current_quantity = $1, quantity = $1 WHERE id = $2 AND user_id = $3 RETURNING *`,
-      [newQty, req.params.id, req.user.id]
+      `UPDATE pantry_items SET current_quantity = $1, quantity = $1, status = $2 WHERE id = $3 AND user_id = $4 RETURNING *`,
+      [newQty, newStatus, req.params.id, req.user.id]
     );
 
     await handleAutoAddToGrocery(req.user.id, updatedItem.rows[0]);
