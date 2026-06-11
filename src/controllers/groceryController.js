@@ -33,12 +33,12 @@ const addGrocery = async (req, res) => {
 
     // Check if already exists (not purchased)
     const existing = await db.query(
-      `SELECT id FROM grocery_items
+      `SELECT * FROM grocery_items
        WHERE user_id = $1 AND item_name = $2 AND is_purchased = false`,
       [req.user.id, itemName]
     );
     if (existing.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'Item already in grocery list' });
+      return res.json({ success: true, item: mapGroceryToFrontend(existing.rows[0]) });
     }
 
     const result = await db.query(
