@@ -1,4 +1,9 @@
 const db = require('../../db');
+const bcrypt = require('bcryptjs');
+const { sendAppResetOTP } = require('../utils/mailer');
+
+// In-memory store for reset OTPs: userId -> { email, otp, expires, verified }
+const resetAppOtps = new Map();
 
 // Helper to get or create default settings
 async function getOrCreateSettings(userId) {
@@ -165,4 +170,127 @@ function mapSettings(row) {
   };
 }
 
-module.exports = { getSettings, updateSettings, getProfile, updateProfile, exportData, clearUserData };
+
+// POST /api/settings/reset/initiate
+const initiateAppReset = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    const userCheck = await db.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const user = userCheck.rows[0];
+
+    // Check if the input email matches user's registered email
+    if (user.email.toLowerCase() !== email.toLowerCase()) {
+      return res.status(400).json({ success: false, message: 'Incorrect email address' });
+    }
+
+    // Check password correctness
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: 'Incorrect password' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    // Store in-memory
+    resetAppOtps.set(req.user.id, {
+      email: user.email,
+      otp,
+      expires,
+      verified: false
+    });
+
+    // Send OTP email
+    const mailSent = await sendAppResetOTP(user.email, otp);
+    if (!mailSent) {
+      return res.status(500).json({ success: false, message: 'Failed to send verification email' });
+    }
+
+    res.status(200).json({ success: true, message: 'OTP sent to your email.' });
+  } catch (error) {
+    console.error('Initiate reset app error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// POST /api/settings/reset/verify
+const verifyAppResetOTP = async (req, res) => {
+  try {
+    const { otp } = req.body;
+    if (!otp) {
+      return res.status(400).json({ success: false, message: 'OTP is required' });
+    }
+
+    const resetData = resetAppOtps.get(req.user.id);
+    if (!resetData) {
+      return res.status(400).json({ success: false, message: 'No pending reset request found. Please start over.' });
+    }
+
+    if (Date.now() > resetData.expires) {
+      resetAppOtps.delete(req.user.id);
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new code.' });
+    }
+
+    if (resetData.otp !== otp) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    }
+
+    // Mark as verified
+    resetData.verified = true;
+    resetAppOtps.set(req.user.id, resetData);
+
+    res.status(200).json({ success: true, message: 'OTP verified. Please confirm your decision.' });
+  } catch (error) {
+    console.error('Verify reset OTP error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// POST /api/settings/reset/confirm
+const confirmAppReset = async (req, res) => {
+  try {
+    const resetData = resetAppOtps.get(req.user.id);
+    if (!resetData || !resetData.verified) {
+      return res.status(400).json({ success: false, message: 'Verification required. Please verify with OTP first.' });
+    }
+
+    const userId = req.user.id;
+
+    // Delete user data
+    await db.query('DELETE FROM pantry_items WHERE user_id = $1', [userId]);
+    await db.query('DELETE FROM grocery_items WHERE user_id = $1', [userId]);
+    await db.query('DELETE FROM alerts WHERE user_id = $1', [userId]);
+    await db.query('DELETE FROM user_settings WHERE user_id = $1', [userId]);
+    await db.query('DELETE FROM pantry_purchase_batches WHERE user_id = $1', [userId]);
+    await db.query('DELETE FROM consumption_logs WHERE user_id = $1', [userId]);
+
+    // Clean up
+    resetAppOtps.delete(userId);
+
+    res.status(200).json({ success: true, message: 'Application reset completed successfully.' });
+  } catch (error) {
+    console.error('Confirm reset app error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+module.exports = {
+  getSettings,
+  updateSettings,
+  getProfile,
+  updateProfile,
+  exportData,
+  clearUserData,
+  initiateAppReset,
+  verifyAppResetOTP,
+  confirmAppReset
+};

@@ -59,4 +59,32 @@ const sendPasswordResetOTP = async (email, otp) => {
   }
 };
 
-module.exports = { sendOTP, sendPasswordResetOTP };
+const sendAppResetOTP = async (email, otp) => {
+  try {
+    await transporter.sendMail({
+      from: `"PantryPal" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Reset your PantryPal Application Data',
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; border: 1px solid #fca5a5; border-radius: 12px;">
+          <h2 style="color: #DC2626; margin-bottom: 8px;">⚠️ Application Reset Request</h2>
+          <p style="color: #6b7280;">We received a request to completely reset your PantryPal application. This will wipe all your pantry, grocery, alerts, and settings data.</p>
+          <p style="color: #6b7280;">Use the OTP below to proceed with the verification:</p>
+          <div style="background: #FEF2F2; border: 2px dashed #FCA5A5; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+            <p style="margin: 0; font-size: 13px; color: #dc2626; letter-spacing: 1px; text-transform: uppercase; font-weight: bold;">Your Verification Code</p>
+            <h1 style="font-size: 42px; letter-spacing: 10px; color: #DC2626; margin: 8px 0;">${otp}</h1>
+            <p style="margin: 0; font-size: 12px; color: #9ca3af;">Expires in 10 minutes</p>
+          </div>
+          <p style="color: #6b7280; font-size: 13px;">If you did not initiate this reset request, please secure your account immediately.</p>
+        </div>
+      `
+    });
+    console.log('App reset OTP sent to:', email);
+    return true;
+  } catch (error) {
+    console.error('Error sending app reset OTP:', error);
+    return false;
+  }
+};
+
+module.exports = { sendOTP, sendPasswordResetOTP, sendAppResetOTP };
